@@ -86,9 +86,27 @@ router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth && !auth.token) {
     next('/login')
   } else if (to.meta.guest && auth.token) {
-    next('/')
+    if (to.path === '/login') {
+      if (auth.isAdmin) {
+        next('/dashboard')
+      } else {
+        next('/calendar')
+      }
+    } else {
+      next('/')
+    }
   } else if (to.meta.roles && !to.meta.roles.includes(auth.user?.role)) {
-    next('/dashboard')
+    if (auth.isAdmin) {
+      next('/dashboard')
+    } else {
+      next('/calendar')
+    }
+  } else if (to.path === '/' || to.path === '') {
+    if (auth.isAdmin) {
+      next('/dashboard')
+    } else {
+      next('/calendar')
+    }
   } else {
     next()
   }

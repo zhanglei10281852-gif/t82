@@ -20,7 +20,7 @@
 
     <a-table :columns="columns" :data-source="holidays" :loading="loading" row-key="id" style="margin-top: 16px">
       <template #bodyCell="{ column, record }">
-        <template v-else-if="column.key === 'action'">
+        <template v-if="column.key === 'action'">
           <a-button type="link" danger @click="handleDelete(record)">删除</a-button>
         </template>
       </template>

@@ -87,13 +87,18 @@ def get_dashboard_stats(
     year: int = Query(...),
     month: int = Query(...),
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(require_admin)
+    current_user: models.User = Depends(get_current_user)
 ):
     start_date = date(year, month, 1)
     days_in_month = monthrange(year, month)[1]
     end_date = date(year, month, days_in_month)
     
-    all_homestays = db.query(models.Homestay).all()
+    if current_user.role == models.UserRole.ADMIN:
+        all_homestays = db.query(models.Homestay).all()
+    else:
+        all_homestays = db.query(models.Homestay).filter(
+            models.Homestay.host_id == current_user.id
+        ).all()
     
     total_revenue = 0.0
     total_sold_nights = 0
@@ -130,33 +135,66 @@ def get_dashboard_stats(
     occupancy_rate = (total_sold_nights / total_available_nights * 100) if total_available_nights > 0 else 0
     avg_daily_rate = (total_revenue / total_sold_nights) if total_sold_nights > 0 else 0
     
-    total_bookings = db.query(models.Booking).filter(
-        models.Booking.check_in_date >= start_date,
-        models.Booking.check_in_date <= end_date
-    ).count()
-    
-    monthly_trend = []
-    for m in range(1, 13):
-        m_start = date(year, m, 1)
-        m_days = monthrange(year, m)[1]
-        m_end = date(year, m, m_days)
-        
-        m_bookings = db.query(models.Booking).filter(
-            models.Booking.check_in_date >= m_start,
-            models.Booking.check_in_date <= m_end
+    if current_user.role == models.UserRole.ADMIN:
+        total_bookings = db.query(models.Booking).filter(
+            models.Booking.check_in_date >= start_date,
+            models.Booking.check_in_date <= end_date
         ).count()
         
-        m_revenue = db.query(func.sum(models.Booking.total_price)).join(models.Room).filter(
-            models.Booking.status == models.BookingStatus.CHECKED_OUT,
-            models.Booking.check_in_date >= m_start,
-            models.Booking.check_in_date <= m_end
-        ).scalar() or 0
+        monthly_trend = []
+        for m in range(1, 13):
+            m_start = date(year, m, 1)
+            m_days = monthrange(year, m)[1]
+            m_end = date(year, m, m_days)
+            
+            m_bookings = db.query(models.Booking).filter(
+                models.Booking.check_in_date >= m_start,
+                models.Booking.check_in_date <= m_end
+            ).count()
+            
+            m_revenue = db.query(func.sum(models.Booking.total_price)).join(models.Room).filter(
+                models.Booking.status == models.BookingStatus.CHECKED_OUT,
+                models.Booking.check_in_date >= m_start,
+                models.Booking.check_in_date <= m_end
+            ).scalar() or 0
+            
+            monthly_trend.append({
+                "month": f"{year}-{m:02d}",
+                "booking_count": m_bookings,
+                "revenue": round(m_revenue, 2)
+            })
+    else:
+        homestay_ids = [hs.id for hs in all_homestays]
+        total_bookings = db.query(models.Booking).join(models.Room).filter(
+            models.Room.homestay_id.in_(homestay_ids),
+            models.Booking.check_in_date >= start_date,
+            models.Booking.check_in_date <= end_date
+        ).count()
         
-        monthly_trend.append({
-            "month": f"{year}-{m:02d}",
-            "booking_count": m_bookings,
-            "revenue": round(m_revenue, 2)
-        })
+        monthly_trend = []
+        for m in range(1, 13):
+            m_start = date(year, m, 1)
+            m_days = monthrange(year, m)[1]
+            m_end = date(year, m, m_days)
+            
+            m_bookings = db.query(models.Booking).join(models.Room).filter(
+                models.Room.homestay_id.in_(homestay_ids),
+                models.Booking.check_in_date >= m_start,
+                models.Booking.check_in_date <= m_end
+            ).count()
+            
+            m_revenue = db.query(func.sum(models.Booking.total_price)).join(models.Room).filter(
+                models.Room.homestay_id.in_(homestay_ids),
+                models.Booking.status == models.BookingStatus.CHECKED_OUT,
+                models.Booking.check_in_date >= m_start,
+                models.Booking.check_in_date <= m_end
+            ).scalar() or 0
+            
+            monthly_trend.append({
+                "month": f"{year}-{m:02d}",
+                "booking_count": m_bookings,
+                "revenue": round(m_revenue, 2)
+            })
     
     return schemas.DashboardStatsResponse(
         total_revenue=round(total_revenue, 2),
